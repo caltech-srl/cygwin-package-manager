@@ -1,49 +1,102 @@
-# Cygwin 3.4 / Windows 7 Package Installer
+# Cygwin 3.4 / Windows 7 Direct Archive Package Tool
 
-`cygwin7-pkg.sh` is an interactive and command-line helper for installing packages into an existing **64-bit Cygwin 3.4.10 installation on Windows 7**.
+`cygwin7-pkg.sh` downloads and installs Cygwin package archives directly into an existing **64-bit Cygwin 3.4.10 installation on Windows 7**.
 
-It runs Cygwin’s `setup-x86_64.exe` against a pinned Windows 7-compatible Cygwin Time Machine snapshot, allowing Cygwin Setup to install the requested package and its required dependencies without intentionally upgrading unrelated packages.
+It does **not** launch, download, or depend on `setup-x86_64.exe`.
 
-> **Important:** This script is intended for legacy Windows 7 systems. It is not needed for supported versions of Windows, where the current Cygwin repository should normally be used.
+The tool reads package names, versions, dependencies, archive locations, sizes, and SHA-512 hashes from the pinned Windows 7-compatible Cygwin snapshot. It then downloads the exact archive selected by that snapshot—normally a `.tar.xz` file—verifies it, extracts it into the Cygwin root, runs its post-install scripts, and updates `/etc/setup` records.
 
-## Features
+## Important warning
 
-- Interactive terminal menu
-- Direct installation by exact package name
-- Searchable graphical Cygwin package chooser
-- Package and version status checks
-- Automatic detection of `setup-x86_64.exe`
-- Optional automatic download of Cygwin Setup
-- Separate package cache and installation logs
-- Package-name validation
-- No `--upgrade-also`, reducing the risk of unrelated package upgrades
-- Warns when the detected Cygwin DLL is not version 3.4.10
+Cygwin officially recommends its normal Setup program for package management. Cygwin's packaging documentation states that there is no official standalone tool for directly installing package archives; manually extracting packages is mainly described as a testing technique.
+
+This script automates direct extraction as carefully as practical, but it cannot reproduce every safety feature of the official package manager. Use it for ordinary utilities such as `grep`, `gawk`, `sed`, `make`, and similar packages—not for replacing the live Cygwin runtime.
+
+The script refuses to replace these core packages while running inside Cygwin:
+
+```text
+cygwin bash coreutils tar xz liblzma5 gzip
+```
+
+Replacing `cygwin1.dll`, the active shell, or a loaded runtime DLL from the same running Cygwin session is unsafe.
+
+## What it does
+
+The script:
+
+- Uses the Cygwin 3.4.10 Windows 7 snapshot dated January 30, 2024.
+- Downloads `x86_64/setup.xz` directly from the snapshot.
+- Builds a local searchable package index.
+- Resolves package dependencies.
+- Downloads exact package archives without using the Cygwin installer.
+- Tries the pinned snapshot first.
+- Tries an official Cygwin mirror only for the same exact archive if the snapshot download fails.
+- Verifies package size and SHA-512 against the pinned snapshot metadata.
+- Extracts the complete archive into `/`.
+- Preserves hard links and symbolic links through Cygwin `tar`.
+- Runs package-provided post-install scripts.
+- Writes `/etc/setup/PACKAGE.lst.gz`.
+- Updates `/etc/setup/installed.db`.
+- Backs up files recorded for an existing package before replacement.
+- Provides interactive and command-line modes.
+
+## What it does not do
+
+The script does not:
+
+- Use `setup-x86_64.exe`.
+- Upgrade unrelated installed packages.
+- Safely replace the running Cygwin DLL or other loaded core files.
+- Remove every stale file left by an older package version.
+- Provide a complete uninstall operation.
+- Cryptographically authenticate the downloaded `setup.xz` catalogue.
+- Guarantee support for packages that require complicated service registration or Windows-specific installer actions.
+
+Package archives are checked against the SHA-512 values in the downloaded catalogue. This detects damaged or mismatched package files. However, because the historical snapshot metadata is fetched over HTTP and is not signature-verified by Cygwin Setup, the check is not equivalent to the official installer's trust model.
 
 ## Requirements
 
-- Windows 7
-- An existing **64-bit Cygwin** installation
-- Cygwin DLL version **3.4.10** is recommended
-- Bash
-- `cygpath`, `cygcheck`, and standard Cygwin tools
-- `setup-x86_64.exe`
-- Administrator access when Cygwin Setup requests it
-- Internet access to the pinned package snapshot
+You need:
 
-The script must be run from a **Cygwin Bash terminal**, not from Command Prompt or PowerShell.
+- Windows 7 64-bit.
+- An existing 64-bit Cygwin installation.
+- Cygwin DLL version 3.4.10.
+- Bash.
+- `tar`, `xz`, and `gzip`.
+- One downloader:
+  - `curl`, or
+  - `wget`, or
+  - Windows PowerShell.
+- Permission to write to the Cygwin root and `/etc/setup`.
 
-## Files
+Check your Cygwin version:
+
+```bash
+uname -r
+```
+
+The expected result begins with:
 
 ```text
-cygwin7-pkg.sh    Package installer script
-README.md         Documentation
+3.4.10
+```
+
+Check the required commands:
+
+```bash
+command -v tar xz gzip
 ```
 
 ## Installation
 
-Copy `cygwin7-pkg.sh` into a convenient folder, such as your Windows Downloads folder.
+Download these two files into the same folder:
 
-Open a Cygwin terminal and go to that folder:
+```text
+cygwin7-pkg.sh
+README.md
+```
+
+Open a Cygwin terminal and go to the folder. For example:
 
 ```bash
 cd ~/Downloads
@@ -55,15 +108,15 @@ Make the script executable:
 chmod +x cygwin7-pkg.sh
 ```
 
-Display the help page:
+Display its configuration:
 
 ```bash
-./cygwin7-pkg.sh --help
+./cygwin7-pkg.sh config
 ```
 
 ## Interactive mode
 
-Start the menu with no arguments:
+Run the script without arguments:
 
 ```bash
 ./cygwin7-pkg.sh
@@ -71,357 +124,457 @@ Start the menu with no arguments:
 
 The menu provides these choices:
 
-1. Install packages by exact name
-2. Open the graphical package chooser
-3. Check an installed package and version
-4. Show the current configuration
-5. Exit
-
-Package names can be entered with spaces or commas:
-
 ```text
-make gcc-g++ gawk
+1) Download and install package(s)
+2) Download package archive(s) only
+3) Search the Windows 7 package snapshot
+4) Show package information
+5) Check installed/snapshot versions
+6) Refresh package catalogue
+7) Show configuration
+8) Exit
 ```
 
-or:
+For installation, enter exact Cygwin package names separated by spaces or commas:
 
 ```text
-make,gcc-g++,gawk
+grep gawk sed
 ```
 
-## Command-line usage
+## Common commands
 
-```text
-./cygwin7-pkg.sh
-./cygwin7-pkg.sh install PACKAGE...
-./cygwin7-pkg.sh gui
-./cygwin7-pkg.sh status PACKAGE...
-./cygwin7-pkg.sh config
-./cygwin7-pkg.sh --help
-```
-
-### Install packages
-
-Install one package:
+### Install one package
 
 ```bash
-./cygwin7-pkg.sh install gawk
+./cygwin7-pkg.sh install grep
 ```
 
-Install several packages:
+### Install several packages
 
 ```bash
-./cygwin7-pkg.sh install make gcc-g++
+./cygwin7-pkg.sh install gawk sed make
 ```
 
-Comma-separated package names are also accepted:
+Comma-separated names also work:
 
 ```bash
 ./cygwin7-pkg.sh install "grep,gawk,sed"
 ```
 
-The script asks for confirmation before starting Cygwin Setup.
+### Install without dependencies
 
-### Open the graphical chooser
+This most closely resembles manually downloading one archive and copying its files:
 
 ```bash
-./cygwin7-pkg.sh gui
+./cygwin7-pkg.sh install --no-deps grep
 ```
 
-This opens Cygwin Setup’s searchable package chooser while using the pinned Windows 7-compatible snapshot.
+Use this only when the package's required libraries are already installed.
 
-In the chooser:
+### Download without installing
 
-1. Keep the mode in the upper-right corner set to **Keep**.
-2. Search for the package by name.
-3. Click the package’s value in the **New** column to select a version.
-4. Review dependency changes carefully before continuing.
+```bash
+./cygwin7-pkg.sh download gawk
+```
 
-### Check package status
+The archive is saved under:
+
+```text
+~/.cache/cygwin7-direct/packages/
+```
+
+### Search for package names
+
+```bash
+./cygwin7-pkg.sh search awk
+```
+
+Search descriptions too:
+
+```bash
+./cygwin7-pkg.sh search "text processing"
+```
+
+### Show package details
+
+```bash
+./cygwin7-pkg.sh info gawk
+```
+
+This shows the snapshot version, installed version, archive path, category, description, and dependencies.
+
+### Compare installed and snapshot versions
 
 ```bash
 ./cygwin7-pkg.sh status grep gawk
 ```
 
-This uses `cygcheck -c` to display the installed status and version of each package.
-
-### Show configuration
+### Reinstall a matching version
 
 ```bash
-./cygwin7-pkg.sh config
+./cygwin7-pkg.sh install --force grep
 ```
 
-The output includes:
-
-- Detected Cygwin DLL version
-- Architecture
-- Cygwin root directory
-- Detected Cygwin Setup executable
-- Package snapshot address
-- Download-cache directory
-- Log directory
-
-## How `setup-x86_64.exe` is found
-
-The script checks the following locations in order:
-
-1. The path set in `CYGWIN_SETUP_EXE`
-2. `C:\tools\cygwin_setup\setup-x86_64.exe`
-3. The Windows Downloads folder
-4. `~/Downloads/setup-x86_64.exe`
-5. The current working directory
-6. `C:\cygwin64\setup-x86_64.exe`
-
-When the installer is not found, the script offers to:
-
-- Download it from Cygwin’s official website
-- Let you enter its full path
-- Exit
-
-Both Windows paths and Cygwin paths are accepted when entering the installer location.
-
-## Optional environment variables
-
-### Use a specific Cygwin Setup executable
+### Preview without changing anything
 
 ```bash
-export CYGWIN_SETUP_EXE='/cygdrive/c/tools/cygwin_setup/setup-x86_64.exe'
-./cygwin7-pkg.sh install make
+./cygwin7-pkg.sh install --dry-run make
 ```
 
-A Windows-style path may also be supplied:
+### Refresh package metadata
 
 ```bash
-export CYGWIN_SETUP_EXE='C:\tools\cygwin_setup\setup-x86_64.exe'
+./cygwin7-pkg.sh refresh
 ```
 
-### Change the package cache
-
-Default:
-
-```text
-~/.cache/cygwin7-setup
-```
-
-Custom location:
+Or refresh immediately before an operation:
 
 ```bash
-export CYGWIN7_CACHE_DIR="$HOME/cygwin-package-cache"
+./cygwin7-pkg.sh install --refresh sed
 ```
 
-### Change the log directory
+## Dependency behavior
 
-Default:
+The default behavior is intentionally conservative:
 
-```text
-~/cygwin7-package-logs
-```
+- Requested packages are installed at the version selected by the Windows 7 snapshot.
+- Missing dependencies are downloaded and installed.
+- A dependency that is already installed is left alone, even when its version differs from the snapshot.
+- Unrelated packages are never changed.
 
-Custom location:
+This reduces the chance of unexpectedly replacing many existing libraries.
+
+To synchronize dependency versions with the Windows 7 snapshot, use:
 
 ```bash
-export CYGWIN7_LOG_DIR="$HOME/setup-logs"
+./cygwin7-pkg.sh install --sync-deps PACKAGE
 ```
 
-## Package source
+For example:
 
-The script is pinned to this Cygwin Time Machine snapshot:
+```bash
+./cygwin7-pkg.sh install --sync-deps make
+```
+
+Review the plan carefully. Synchronizing dependencies can downgrade or replace libraries used by other programs. The script still refuses to replace designated live core packages.
+
+To ignore dependency resolution completely:
+
+```bash
+./cygwin7-pkg.sh install --no-deps PACKAGE
+```
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| `-y`, `--yes` | Continue without the confirmation prompt |
+| `-f`, `--force` | Reinstall explicitly requested packages even when the version matches |
+| `--no-deps` | Do not resolve or download dependencies |
+| `--sync-deps` | Replace mismatched installed dependency versions with snapshot versions |
+| `--no-backup` | Do not back up the existing package's recorded files |
+| `--dry-run` | Show the planned actions without downloading or installing |
+| `--refresh` | Refresh the package catalogue before the operation |
+
+Example:
+
+```bash
+./cygwin7-pkg.sh install --dry-run --sync-deps gawk
+```
+
+## Download sources
+
+The package catalogue comes from the pinned Cygwin Time Machine snapshot:
 
 ```text
 http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215
 ```
 
-The snapshot is used because current Cygwin packages may require a newer Cygwin DLL and a newer version of Windows. Installing current packages into Cygwin 3.4.10 can cause errors such as:
+For each package, the script uses the exact archive path, size, and SHA-512 recorded in that catalogue.
+
+If the exact archive cannot be downloaded from the Time Machine, the script tries this official mirror:
 
 ```text
-The procedure entry point ... could not be located in the dynamic link library cygwin1.dll
+https://gcc.gnu.org/ftp/cygwin
 ```
 
-Only packages and versions present in the pinned snapshot can be installed.
+The fallback file is accepted only when its size and SHA-512 match the pinned snapshot metadata. The script never chooses a newer package version from the fallback mirror.
 
-## What the script changes
+You can override either source:
 
-When an installation is approved, the script allows Cygwin Setup to:
+```bash
+export CYGWIN7_ARCHIVE_BASE='http://your-compatible-snapshot.example/cygwin'
+export CYGWIN7_FALLBACK_BASE='https://your-mirror.example/cygwin'
+```
 
-- Download the selected packages
-- Install the selected packages into the current Cygwin root
-- Install required dependencies
-- Update Cygwin’s installed-package database
-- Write a setup log
+Then run the script normally.
 
-The script deliberately does **not** pass `--upgrade-also`, so it does not intentionally request an upgrade of every installed package. Cygwin Setup may still need to change a dependency required by the selected package. Always review the proposed changes.
+## Archive formats
 
-## Safety notes
-
-- Back up important files before modifying a legacy system.
-- Close other Cygwin terminals before installing or replacing core DLLs, shells, or runtime libraries.
-- Do not download individual DLL files from unofficial DLL websites.
-- Avoid combining packages from the current Cygwin repository with the pinned Windows 7 snapshot.
-- Do not change the snapshot address unless you understand Cygwin package compatibility.
-- The script uses `--no-verify` because archived snapshots may not have metadata that current Cygwin Setup can verify. This reduces package-verification protection, so use only a trusted snapshot.
-- Review Cygwin Setup’s dependency summary before approving an installation.
-
-## Logs
-
-Each setup run creates a timestamped log such as:
+The snapshot catalogue determines the exact package archive. Most packages use:
 
 ```text
-~/cygwin7-package-logs/setup-install-20260728-163000.log
+.tar.xz
 ```
 
-Graphical chooser runs use names similar to:
+Some older packages exist only as:
 
 ```text
-~/cygwin7-package-logs/setup-chooser-20260728-163500.log
+.tar.bz2
+.tar.gz
+.tar.zst
 ```
 
-Use the log when diagnosing a failed installation or unexpected dependency change.
+The script does not substitute a newer package merely to obtain an `.xz` file. It downloads the exact compatible archive listed in the Windows 7 snapshot and lets Cygwin `tar` detect the compression format.
 
-## Troubleshooting
+## Files created by the tool
 
-### “Run this script inside a Cygwin Bash terminal”
-
-You launched the script from Command Prompt, PowerShell, Git Bash, or another shell. Open the Cygwin terminal and run it there.
-
-### “This script supports only 64-bit Cygwin”
-
-The script detected a non-`x86_64` Cygwin installation. It does not support 32-bit Cygwin.
-
-### Warning about a Cygwin DLL other than 3.4.10
-
-The script was designed for Cygwin 3.4.10 on Windows 7. Continuing with another DLL version may install incompatible packages. Cancel unless you have confirmed that the snapshot is appropriate for your version.
-
-### `setup-x86_64.exe` cannot be found
-
-Place the installer in:
+### Metadata and package cache
 
 ```text
-C:\tools\cygwin_setup\setup-x86_64.exe
+~/.cache/cygwin7-direct/
 ```
 
-or set its path explicitly:
+Important files include:
+
+```text
+~/.cache/cygwin7-direct/metadata/setup.xz
+~/.cache/cygwin7-direct/metadata/setup.ini
+~/.cache/cygwin7-direct/metadata/packages.index
+~/.cache/cygwin7-direct/packages/
+```
+
+### Logs
+
+```text
+~/cygwin7-package-logs/
+```
+
+Each installation creates a timestamped log.
+
+### Backups
+
+```text
+~/cygwin7-package-backups/PACKAGE/
+```
+
+Before replacing an installed package, the script reads its existing `/etc/setup/PACKAGE.lst.gz` and creates a compressed backup of those recorded files.
+
+Example:
+
+```text
+~/cygwin7-package-backups/gawk/gawk-5.4.0-1-20260728-180000.tar.xz
+```
+
+These backups contain files, not a complete package-database rollback.
+
+## How direct installation works
+
+For each requested package, the script performs this sequence:
+
+1. Reads the package's snapshot version and dependency information.
+2. Builds dependency-first installation order.
+3. Displays the planned actions.
+4. Downloads the exact archive.
+5. Checks the archive's byte size.
+6. Checks its SHA-512 hash.
+7. Rejects unsafe archive paths such as `../`.
+8. Backs up files recorded for the previous installed version.
+9. Extracts the full archive into the current Cygwin root.
+10. Creates `/etc/setup/PACKAGE.lst.gz` from the archive contents.
+11. Updates `/etc/setup/installed.db`.
+12. Runs post-install scripts included by the installed packages.
+13. Renames successful post-install scripts with `.done`.
+
+## Recommended workflow for a DLL entry-point error
+
+An error such as:
+
+```text
+The procedure entry point ... could not be located in cygwin1.dll
+```
+
+usually indicates that a program was built for a newer Cygwin runtime than the installed `cygwin1.dll`.
+
+First compare versions:
 
 ```bash
-export CYGWIN_SETUP_EXE='/cygdrive/c/path/to/setup-x86_64.exe'
+./cygwin7-pkg.sh status grep
 ```
 
-Then run the script again.
-
-### Automatic installer download fails
-
-Download `setup-x86_64.exe` manually from the official Cygwin website using Firefox, save it to Downloads, and rerun the script.
-
-### A package cannot be found
-
-Check that:
-
-- The package name is exact
-- The package existed in the pinned snapshot
-- The snapshot server is reachable
-- The package is not merely a command supplied by a differently named package
-
-Use the graphical chooser to search available package names:
+Preview the replacement:
 
 ```bash
-./cygwin7-pkg.sh gui
+./cygwin7-pkg.sh install --dry-run --no-deps grep
 ```
 
-### Setup proposes removing a Base package
-
-Do not accept the change until you understand why it is proposed. Click **Back** or cancel the setup run. A mixed package cache or incompatible package selection can cause unsafe dependency proposals.
-
-You can clear the script’s package cache and try again:
+Install the snapshot version:
 
 ```bash
-rm -rf "$HOME/.cache/cygwin7-setup"
+./cygwin7-pkg.sh install --no-deps grep
 ```
 
-This removes downloaded setup files only; it does not remove installed Cygwin packages.
-
-### Installed executable still reports a DLL entry-point error
-
-Restart all Cygwin terminals. Then check the package and DLL versions:
+Close every Cygwin terminal, reopen Cygwin, and test:
 
 ```bash
-uname -r
-cygcheck -c package-name
+grep --version
 ```
 
-Also check whether Windows is loading more than one `cygwin1.dll`:
-
-```cmd
-where /r C:\ cygwin1.dll
-```
-
-Run the `where` command from Windows Command Prompt, not Cygwin.
-
-### Installation failed
-
-Read the most recent log:
+For `gawk`:
 
 ```bash
-ls -lt ~/cygwin7-package-logs
+./cygwin7-pkg.sh install --no-deps gawk
 ```
 
-Then open it with:
-
-```bash
-less ~/cygwin7-package-logs/setup-install-YYYYMMDD-HHMMSS.log
-```
-
-## Limitations
-
-- Supports only 64-bit Cygwin
-- Designed specifically for Cygwin 3.4.10 on Windows 7
-- Installs only packages available in the pinned snapshot
-- Does not provide package removal
-- Does not automatically select older package versions in the GUI
-- Does not guarantee that every archived package is compatible with every existing mixed installation
-- Depends on the continued availability of the snapshot server
-- Current versions of `setup-x86_64.exe` may eventually stop running on Windows 7
-
-## Example workflow
-
-Check the current setup:
-
-```bash
-./cygwin7-pkg.sh config
-```
-
-Check whether `gawk` is installed:
-
-```bash
-./cygwin7-pkg.sh status gawk
-```
-
-Install it:
-
-```bash
-./cygwin7-pkg.sh install gawk
-```
-
-Close and reopen Cygwin, then verify:
+Then reopen Cygwin and test:
 
 ```bash
 gawk --version
 ```
 
-Test it:
+## Troubleshooting
+
+### `Cannot write /etc/setup`
+
+The current account cannot modify the Cygwin installation. Close the terminal and start Cygwin with sufficient permission to write `C:\cygwin64`.
+
+Do not run two package operations at the same time.
+
+### `Package was not found in the Windows 7 snapshot`
+
+Confirm the exact package name:
 
 ```bash
-echo 'hello world' | gawk '{print $1}'
+./cygwin7-pkg.sh search KEYWORD
 ```
 
-Expected output:
+The package may not have existed in the January 2024 snapshot.
+
+### Package catalogue download fails
+
+Check that this address opens in a browser:
 
 ```text
-hello
+http://ctm.crouchingtigerhiddenfruitbat.org/pub/cygwin/circa/64bit/2024/01/30/231215/x86_64/setup.xz
 ```
+
+The snapshot uses HTTP, not HTTPS.
+
+Also check that `curl`, `wget`, or PowerShell is available:
+
+```bash
+command -v curl wget
+command -v powershell.exe
+```
+
+### SHA-512 mismatch
+
+The downloaded file does not match the snapshot catalogue. The script deletes it and stops. Refresh metadata and try again:
+
+```bash
+./cygwin7-pkg.sh refresh
+./cygwin7-pkg.sh install PACKAGE
+```
+
+Do not disable archive verification.
+
+### Extraction fails
+
+Close all other Cygwin terminals and programs. A running program may have locked a file that the package is trying to replace.
+
+The script cannot safely resolve every Windows file-lock situation.
+
+### Post-install script fails
+
+Read the timestamped log in:
+
+```text
+~/cygwin7-package-logs/
+```
+
+The package files may have been extracted even though configuration failed.
+
+### A package command is still the old version
+
+Close every Cygwin terminal and reopen it. Then check:
+
+```bash
+which PACKAGE_COMMAND
+PACKAGE_COMMAND --version
+```
+
+Also check for duplicate executables:
+
+```bash
+type -a PACKAGE_COMMAND
+```
+
+### The package is installed but a DLL is missing
+
+Inspect dependencies:
+
+```bash
+./cygwin7-pkg.sh info PACKAGE
+```
+
+Then install the missing dependency explicitly:
+
+```bash
+./cygwin7-pkg.sh install DEPENDENCY
+```
+
+Use `--sync-deps` only after reviewing the planned replacements.
+
+## Restoring a backup
+
+List available backups:
+
+```bash
+find ~/cygwin7-package-backups -type f
+```
+
+To restore backed-up files manually:
+
+```bash
+tar -C / -xJf ~/cygwin7-package-backups/PACKAGE/BACKUP-FILE.tar.xz
+```
+
+This restores files only. It does not automatically restore the previous line in `/etc/setup/installed.db` or the previous package list. Keep the original compatible package archive whenever possible, and reinstall that version through this script rather than relying only on file restoration.
+
+## Removing cached downloads
+
+Remove downloaded package archives while keeping metadata:
+
+```bash
+rm -rf ~/.cache/cygwin7-direct/packages
+```
+
+Remove all downloaded metadata and archives:
+
+```bash
+rm -rf ~/.cache/cygwin7-direct
+```
+
+The next command will download and rebuild the catalogue again.
+
+## Safety recommendations
+
+- Close other Cygwin programs before installing.
+- Preview unfamiliar operations with `--dry-run`.
+- Install only exact package names found in the pinned snapshot.
+- Prefer the default dependency behavior.
+- Avoid `--sync-deps` unless a dependency version is actually causing a problem.
+- Do not attempt to replace `cygwin`, Bash, or core runtime libraries with this tool.
+- Keep the automatic backups until the new package has been tested.
+- Reopen Cygwin before testing newly installed executables or DLLs.
+
+## References
+
+- Cygwin installation guidance for unsupported Windows versions: `https://cygwin.com/install.html`
+- Cygwin package archive format: `https://cygwin.com/packaging-package-files.html`
+- Cygwin package contributor guidance on direct extraction: `https://cygwin.com/packaging-contributors-guide.html`
+- Cygwin package database location and Setup behavior: `https://cygwin.com/cygwin-ug-net/setup-net.html`
 
 ## License
 
-No license is included with this script. Add a license file before redistributing it publicly.
-
-## Disclaimer
-
-This is a legacy-system maintenance utility. Use it at your own risk. Windows 7 and Cygwin 3.4.10 are no longer the current supported platform combination, and archived packages do not receive current security updates.
+This helper script is provided as-is, without warranty. Cygwin packages retain their own licenses and copyright notices.
